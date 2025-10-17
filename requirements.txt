@@ -1,0 +1,6 @@
+streamlit
+rembg
+onnxruntime
+pillow
+numpy
+onnxruntime-gpu
