@@ -1,61 +1,93 @@
 import streamlit as st
-from rembg import remove
-from PIL import Image
 import numpy as np
-import io
 import cv2
+from PIL import Image
+import io
 
-st.set_page_config(page_title="Background Changer", page_icon="🎨", layout="wide")
+def encode_message(img, message):
+    message += "####"  # Delimiter to mark end of message
+    binary_msg = ''.join([format(ord(char), '08b') for char in message])
+    data_index = 0
+    img_data = img.flatten().astype(np.uint8)  # ensure correct type
 
-st.title("🎨 Image Background Changer")
-st.write("Upload an image and change its background to any color or custom image!")
+    for i in range(len(binary_msg)):
+        if data_index < len(img_data):
+            # use safer masking to stay within 0–255
+            pixel = int(img_data[data_index])
+            pixel = (pixel & 0b11111110) | int(binary_msg[i])
+            img_data[data_index] = pixel
+            data_index += 1
+        else:
+            st.error("Message too large for this image!")
+            break
 
-uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+    encoded_img = img_data.reshape(img.shape)
+    return encoded_img
 
-if uploaded_file:
-    input_image = Image.open(uploaded_file).convert("RGBA")
-    st.image(input_image, caption="Original Image", use_container_width=True)
 
-    with st.spinner("Removing background..."):
-        # Remove background using rembg
-        output_image = remove(input_image)
-        st.success("Background removed successfully!")
 
-    st.image(output_image, caption="Background Removed", use_container_width=True)
+def decode_message(img):
+    binary_data = ""
+    img_data = img.flatten()
 
-    # Options to choose background type
-    st.subheader("🎨 Choose Background Option")
-    bg_option = st.radio("Select Background Type", ["Solid Color", "Custom Image"])
+    for pixel in img_data:
+        binary_data += str(pixel & 1)
 
-    final_image = None
+    # Convert binary data to string
+    all_bytes = [binary_data[i:i+8] for i in range(0, len(binary_data), 8)]
+    decoded_msg = ""
+    for byte in all_bytes:
+        decoded_msg += chr(int(byte, 2))
+        if decoded_msg.endswith("####"):
+            break
+    return decoded_msg[:-4]
 
-    if bg_option == "Solid Color":
-        # Choose background color
-        color = st.color_picker("Pick a background color", "#00b4d8")
 
-        # Create solid background
-        bg = Image.new("RGBA", output_image.size, color)
-        final_image = Image.alpha_composite(bg, output_image)
-        st.image(final_image, caption="New Background", use_container_width=True)
+# --- Streamlit UI ---
 
-    elif bg_option == "Custom Image":
-        bg_file = st.file_uploader("Upload a background image", type=["jpg", "jpeg", "png"])
-        if bg_file:
-            bg_image = Image.open(bg_file).convert("RGBA")
-            bg_image = bg_image.resize(output_image.size)
+st.set_page_config(page_title="Image Secrets", page_icon="🕵️‍♂️", layout="wide")
+st.title("🕵️‍♂️ Image Secrets")
+st.write("Hide secret messages inside images securely and reveal them anytime!")
 
-            final_image = Image.alpha_composite(bg_image, output_image)
-            st.image(final_image, caption="New Background", use_container_width=True)
+menu = st.sidebar.radio("Select Mode", ["Encrypt Message", "Decrypt Message"])
 
-    # Download option
-    if final_image is not None:
-        buf = io.BytesIO()
-        final_image.save(buf, format="PNG")
-        byte_im = buf.getvalue()
+if menu == "Encrypt Message":
+    st.header("🔒 Hide Message inside Image")
+    uploaded_file = st.file_uploader("Upload an Image", type=["png", "jpg", "jpeg"])
 
-        st.download_button(
-            label="Download Final Image",
-            data=byte_im,
-            file_name="background_changed.png",
-            mime="image/png"
-        )
+    if uploaded_file:
+        img = np.array(Image.open(uploaded_file))
+        st.image(img, caption="Original Image", use_container_width=True)
+
+        secret_message = st.text_area("Enter your secret message:")
+        if st.button("Encrypt and Download"):
+            if secret_message.strip() == "":
+                st.warning("Please enter a message to hide!")
+            else:
+                encoded_img = encode_message(img.copy(), secret_message)
+                result = Image.fromarray(encoded_img.astype(np.uint8))
+
+                buf = io.BytesIO()
+                result.save(buf, format="PNG")
+                byte_im = buf.getvalue()
+
+                st.success("✅ Message successfully hidden inside image!")
+                st.download_button(
+                    label="Download Encrypted Image",
+                    data=byte_im,
+                    file_name="encoded_image.png",
+                    mime="image/png"
+                )
+
+elif menu == "Decrypt Message":
+    st.header("🔍 Reveal Hidden Message from Image")
+    uploaded_file = st.file_uploader("Upload the Encrypted Image", type=["png", "jpg", "jpeg"])
+
+    if uploaded_file:
+        img = np.array(Image.open(uploaded_file))
+        st.image(img, caption="Encrypted Image", use_container_width=True)
+
+        if st.button("Reveal Message"):
+            message = decode_message(img)
+            st.success("✅ Message Revealed!")
+            st.text_area("Hidden Message:", message, height=150)

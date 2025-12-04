@@ -1,6 +1,4 @@
 streamlit
-rembg
-onnxruntime
-pillow
+opencv-python-headless
 numpy
-onnxruntime-gpu
+pillow
